@@ -1,0 +1,6 @@
+import React from 'react'
+import { ArrowRight, Trash2 } from 'lucide-react'
+import ContractDocument from './ContractDocument.jsx'
+export default function TemplateDetail({ template, canEdit, onBack, onUse, onDelete }) {
+  return <section className="detail template-detail"><button className="back-link" onClick={onBack}>← &nbsp; Back to templates</button><div className="detail-head"><div><span className="detail-kicker">{template.type?.toUpperCase()} TEMPLATE · GENERAL</span><h2>{template.title}</h2><p>Reusable starting point for a new {template.type?.toLowerCase()}.</p></div></div><div className="detail-content">{template.subject && <div className="detail-row"><span>Subject</span><strong>{template.subject}</strong></div>}<div className="contract-terms"><span>CONTENT</span><ContractDocument content={template.bodyDocument || template.document} legacyTerms={template.body || template.terms || ''} emptyText="No content yet."/></div><div className="detail-buttons">{canEdit && <><button className="primary" onClick={() => onUse(template)}>Use template <ArrowRight size={16}/></button><button className="secondary" onClick={() => onDelete(template)}><Trash2 size={16}/> Delete template</button></>}</div></div></section>
+}
