@@ -2,8 +2,9 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, chmodSync, copyFileSync, existsSync, readdirSync, unlinkSync } from 'node:fs'
 import path from 'node:path'
 import { backup, DatabaseSync } from 'node:sqlite'
+import { datePattern, eventKinds, timePattern } from '../src/schedule.js'
 
-export const sections = ['Projects', 'Clients', 'Galleries', 'Invoices', 'Contracts', 'Email', 'Templates']
+export const sections = ['Projects', 'Clients', 'Galleries', 'Invoices', 'Contracts', 'Email', 'Templates', 'Events']
 const projectSections = new Set(['Galleries', 'Invoices', 'Contracts', 'Email'])
 export const databasePath = path.resolve(process.env.DB_PATH || 'data/darkroom.sqlite')
 mkdirSync(path.dirname(databasePath), { recursive: true, mode: 0o700 })
@@ -140,6 +141,13 @@ db.exec(`
     paid_at INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS invoice_payments_invoice_idx ON invoice_payments(studio_id, invoice_id, paid_at);
+  CREATE TABLE IF NOT EXISTS calendar_feeds (
+    token_hash TEXT PRIMARY KEY,
+    studio_id TEXT NOT NULL REFERENCES studios(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at INTEGER NOT NULL,
+    UNIQUE (studio_id, user_id)
+  );
 `)
 if (!db.prepare('PRAGMA table_info(sessions)').all().some(column => column.name === 'studio_id')) db.exec('ALTER TABLE sessions ADD COLUMN studio_id TEXT')
 if (!db.prepare('PRAGMA table_info(users)').all().some(column => column.name === 'active_studio_id')) db.exec('ALTER TABLE users ADD COLUMN active_studio_id TEXT')
@@ -303,6 +311,11 @@ export function saveRecord(studioId, section, item, { allowLegacy = false } = {}
     if (section === 'Email' && item.galleryId && String(recordFor(studioId, 'Galleries', item.galleryId)?.projectId) !== String(project?.id)) throw new Error('Gallery must belong to this project')
   }
   if (section === 'Templates' && !['Email', 'Contract'].includes(item.type)) throw new Error('Invalid template')
+  if (section === 'Events') {
+    const validTimes = item.start ? timePattern.test(item.start) && (!item.end || (timePattern.test(item.end) && item.end > item.start)) : !item.end
+    if (typeof item.title !== 'string' || !item.title.trim() || item.title.length > 200 || !datePattern.test(item.date || '') || !eventKinds.includes(item.kind) || !validTimes) throw new Error('Add a title, a kind, a date, and an end time after the start time.')
+    if (item.projectId !== undefined && item.projectId !== null && item.projectId !== '' && !recordFor(studioId, 'Projects', item.projectId)) throw new Error('Choose a project for this record')
+  }
   putRecordStatement.run(studioId, section, String(item.id), encoded, Date.now())
   return record
 }

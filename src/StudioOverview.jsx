@@ -1,16 +1,15 @@
 import React, { useState } from 'react'
 import { ArrowRight, BellRing, FileSignature, FileText, Mail, Plus } from 'lucide-react'
 import { invoiceTotals, money } from './invoice.js'
+import { parseDate, shortDate } from './format.js'
 
-const readableDate = value => {
-  if (!value) return 'Date not set'
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
+const readableDate = value => value ? shortDate(value) : 'Date not set'
 
 const daysOverdue = due => {
-  const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(due || '') ? `${due}T23:59:59` : due)
-  return Number.isNaN(date.getTime()) ? 0 : Math.floor((Date.now() - date.getTime()) / 86_400_000)
+  const date = parseDate(due)
+  if (!date) return 0
+  date.setHours(23, 59, 59, 999)
+  return Math.max(0, Math.ceil((Date.now() - date.getTime()) / 86_400_000))
 }
 const reminded = item => item.lastSentAt ? ` · Last emailed ${readableDate(item.lastSentAt)}` : ''
 

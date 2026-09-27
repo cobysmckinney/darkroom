@@ -9,6 +9,7 @@ import { createGalleryShare, galleryForEmail, galleryHtml, galleryMessage, galle
 import { linkErrors, linksHtml, linksMessage, revokeClientLinks } from './clientLinks.js'
 import { signingLinkFor, signingRoutes } from './signing.js'
 import { paymentLinkFor, paymentRoutes, stripeFor, stripeWebhookRoute } from './payments.js'
+import { calendarRoutes } from './calendar.js'
 
 export const smtpTransport = smtp => nodemailer.createTransport({ host: smtp.host, port: smtp.port, secure: smtp.secure || smtp.port === 465, auth: smtp.user ? { user: smtp.user, pass: smtp.pass } : undefined, requireTLS: !(smtp.secure || smtp.port === 465) })
 
@@ -37,6 +38,7 @@ export function createApp({ host = '127.0.0.1', isProduction = false, mailTransp
   galleryRoutes(app)
   signingRoutes(app)
   paymentRoutes(app, { stripeFetch })
+  calendarRoutes(app)
 
   app.get('/api/workspace', requireSession, (request, response) => response.json(workspaceFor(request.session.studio_id)))
   app.get('/api/workspace/export', requireSession, (request, response) => {
@@ -52,9 +54,12 @@ export function createApp({ host = '127.0.0.1', isProduction = false, mailTransp
     try {
       if (!sections.includes(request.params.section)) return response.status(404).json({ error: 'Unknown section.' })
       response.json(saveRecord(request.session.studio_id, request.params.section, request.body))
-    } catch { response.status(400).json({ error: 'Record could not be saved.' }) }
+    } catch (error) { response.status(400).json({ error: request.params.section === 'Events' || error.message === 'Choose a project for this record' ? error.message : 'Record could not be saved.' }) }
   })
-  app.delete('/api/records/Templates/:id', requireEditor, requireCsrf, (request, response) => response.json({ removed: removeRecord(request.session.studio_id, 'Templates', request.params.id) }))
+  app.delete('/api/records/:section/:id', requireEditor, requireCsrf, (request, response) => {
+    if (!['Templates', 'Events'].includes(request.params.section)) return response.status(404).json({ error: 'Records in this section cannot be deleted.' })
+    response.json({ removed: removeRecord(request.session.studio_id, request.params.section, request.params.id) })
+  })
 
   app.get('/api/email/status', requireSession, (request, response) => response.json({ configured: Boolean(smtpForStudio(request.session.studio_id)), paymentsConfigured: Boolean(stripeFor(request.session.studio_id)) }))
   app.get('/api/email/:id/attachments/:position', requireSession, (request, response) => {

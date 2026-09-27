@@ -1,8 +1,8 @@
 import React, { useState } from 'react'
 import { Plus, Trash2, X } from 'lucide-react'
 import { invoiceTotals, money } from './invoice.js'
+import { dateInput } from './format.js'
 
-const dateInput = value => { const date = new Date(value); return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10) }
 
 export default function InvoiceEditor({ item, settings, projects, clients, currentProjectId, onSave, onClose }) {
   const initialProjectId = item?.projectId || (projects.some(project => String(project.id) === String(currentProjectId)) ? currentProjectId : '')

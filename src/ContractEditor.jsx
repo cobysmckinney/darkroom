@@ -1,9 +1,9 @@
 import React, { useState } from 'react'
 import { X } from 'lucide-react'
+import { dateInput } from './format.js'
 import RichTextEditor from './RichTextEditor.jsx'
 
 const defaultDocument = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Describe the services, deliverables, schedule, payment, cancellation, and usage rights you and your client agreed to.' }] }] }
-const dateInput = value => { const date = new Date(value); return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10) }
 const legacyDocument = terms => ({ type: 'doc', content: String(terms || '').split('\n').map(text => text ? { type: 'paragraph', content: [{ type: 'text', text }] } : { type: 'paragraph' }) })
 
 export default function ContractEditor({ item, template, projects, clients, currentProjectId, onSave, onClose }) {
