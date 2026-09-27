@@ -1,9 +1,9 @@
+import { invoiceTotals, money } from './invoice.js'
 const ink = { r: 0.13, g: 0.14, b: 0.13 }
 const muted = { r: 0.43, g: 0.44, b: 0.41 }
 const olive = { r: 0.47, g: 0.46, b: 0.35 }
 const printable = value => String(value ?? '').replace(/[\u0000-\u0008\u000B-\u001F]/g, '')
 const dateText = value => /^\d{4}-\d{2}-\d{2}$/.test(value || '') ? new Date(`${value}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : value || 'Not set'
-const money = (value, currency) => new Intl.NumberFormat('en-US', { style: 'currency', currency: currency || 'USD' }).format(Number(value) || 0)
 
 export function documentFilename(type, item) {
   const base = type === 'Invoices' ? item.title : `${item.client}-${item.title}`
@@ -93,14 +93,13 @@ export async function generateDocumentPdf(type, item, studioName = 'Studio', set
   y -= 16; line(y); y -= 29
 
   if (type === 'Invoices') {
-    const currency = item.currency || settings.currency || 'USD'
-    const items = item.lineItems?.length ? item.lineItems : [{ description: item.service || 'Photography services', quantity: 1, unitPrice: Number(String(item.amount || '0').replace(/[^\d.]/g, '')) }]
+    const totals = invoiceTotals(item, settings.currency || 'USD')
+    const { currency } = totals
     text('DESCRIPTION', 48, y, 9, bold, olive); text('QTY', 393, y, 9, bold, olive); text('RATE', 445, y, 9, bold, olive); text('TOTAL', 520, y, 9, bold, olive)
     y -= 18; line(y); y -= 22
-    let subtotal = 0
-    for (const row of items) {
+    for (const row of totals.lines) {
       const quantity = Number(row.quantity) || 0, unitPrice = Number(row.unitPrice) || 0
-      const amount = quantity * unitPrice; subtotal += amount
+      const amount = quantity * unitPrice
       const lines = wrap(row.description, 310, 10)
       ensure(Math.max(31, lines.length * 15 + 12))
       const startY = y
@@ -110,13 +109,11 @@ export async function generateDocumentPdf(type, item, studioName = 'Studio', set
       text(money(amount, currency), 520, startY, 9, bold)
       y -= 13; line(y); y -= 20
     }
-    const discount = Number(item.discount) || 0
-    const tax = Math.max(0, subtotal - discount) * (Number(item.taxRate) || 0) / 100
-    const total = Math.max(0, subtotal - discount + tax)
-    for (const [label, value] of [['Subtotal', subtotal], ['Discount', -discount], [`Tax (${Number(item.taxRate) || 0}%)`, tax], ['Total', total], ['Paid', -(Number(item.amountPaid) || 0)]]) {
+    const summary = [['Subtotal', totals.subtotal], ['Discount', -totals.discount], [`Tax (${totals.taxRate}%)`, totals.tax], ['Total', totals.total], ['Paid', -totals.manualPaid], ...(totals.onlinePaid ? [['Paid online', -totals.onlinePaid]] : [])]
+    for (const [label, value] of summary) {
       ensure(23); text(label, 403, y, 10, label === 'Total' ? bold : regular); text(money(value, currency), 490, y, 10, label === 'Total' ? bold : regular); y -= 22
     }
-    ensure(40); line(y + 3); y -= 23; text('BALANCE DUE', 376, y, 11, bold, olive); text(money(Math.max(0, total - (Number(item.amountPaid) || 0)), currency), 485, y, 13, bold); y -= 35
+    ensure(40); line(y + 3); y -= 23; text('BALANCE DUE', 376, y, 11, bold, olive); text(money(totals.balance, currency), 485, y, 13, bold); y -= 35
     for (const [label, value] of [['PAYMENT TERMS', item.paymentTerms || settings.paymentTerms], ['NOTES', item.notes || settings.invoiceNotes]]) {
       if (!value) continue
       ensure(45); text(label, 48, y, 9, bold, olive); y -= 20; block(value); y -= 12
@@ -132,9 +129,18 @@ export async function generateDocumentPdf(type, item, studioName = 'Studio', set
       richBlock(section.runs || [{ text: ' ' }], size, heading ? 21 : 16, heading)
       y -= heading ? 12 : 9
     }
-    ensure(145); y -= 30; line(y); line(y - 50)
+    ensure(item.signature ? 190 : 145); y -= 30
+    if (item.signature) {
+      text(item.signature.name, 48, y + 8, 14, italic)
+      text(new Date(item.signature.signedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), 48, y - 42, 10)
+    }
+    line(y); line(y - 50)
     text('CLIENT SIGNATURE', 48, y - 14, 8, bold, muted); text('PHOTOGRAPHER SIGNATURE', 315, y - 14, 8, bold, muted)
     text('DATE', 48, y - 64, 8, bold, muted); text('DATE', 315, y - 64, 8, bold, muted)
+    if (item.signature) {
+      y -= 92
+      block(`Signed electronically by ${item.signature.name} (${item.signature.email}) on ${new Date(item.signature.signedAt).toUTCString()}. Document fingerprint ${item.signature.documentHash}.`, 48, 516, 7.5, 11, regular, muted)
+    }
   }
   pdf.getPages().forEach((current, index, pages) => {
     current.drawLine({ start: { x: 48, y: 73 }, end: { x: 564, y: 73 }, thickness: .7, color: rgb(.82, .82, .79) })

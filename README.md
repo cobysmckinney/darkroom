@@ -52,9 +52,25 @@ Open an invoice or contract and choose **Download PDF**, or choose **Email PDF**
 
 Sent PDF copies are stored in the SQLite database with the email history, so they are included in database backups. Messages sent before this feature was added may lack downloadable PDF copies and cannot be resent exactly if they had attachments; reuse them as drafts instead.
 
+## Client signing and online payments
+
+Emailing a contract PDF adds a private link where the client can read the agreement, type their name, and sign. Signing links expire after 30 days. Darkroom records the signer's name, email, time, IP address, browser, and a fingerprint of the exact terms, marks the contract **Signed**, and adds the signature to its PDF. If you edit a contract's terms after sending, its signing link stops working and any earlier signature no longer applies, so send the new version for signature. **Mark signed** is still available for agreements signed on paper.
+
+To accept card payments, add a Stripe secret key in **Settings → Online payments**. After that, emailing an invoice with a balance due adds a private payment link (valid for 60 days) that opens Stripe Checkout for the current balance. The balance is calculated on the server from the invoice's line items, discount, tax, and payments already recorded. Payments are recorded when the client returns from Checkout. To also record payments when the client closes the page early, add a Stripe webhook for `checkout.session.completed` and `checkout.session.async_payment_succeeded` at the URL shown in Settings, and save its signing secret. Online payments appear on the invoice and its PDF as **Paid online**. Signing and payment links need `PUBLIC_BASE_URL` (or an HTTPS origin) for the same reasons as gallery links.
+
+**Needs your attention** on the studio overview lists unpaid invoices (flagging overdue ones) and contracts awaiting signature. **Send reminder** opens a prefilled email with the document attached, and sending it adds a fresh signing or payment link.
+
 ## Backups and export
 
 Darkroom creates a SQLite backup at startup and every 24 hours while the server runs. It keeps the latest 14 dated backups in `backups/`. Run `npm run backup` to create one immediately. When present, the SMTP encryption key is copied to the backup directory as `studio-secrets.key`. Copy the backups off the machine for disaster recovery. In Settings, **Export studio data** downloads the current studio's records as JSON. The export excludes account credentials and SMTP settings.
+
+## Tests
+
+```bash
+npm test
+```
+
+Server tests run against a temporary database for each test file and use stand-ins for SMTP and Stripe.
 
 ## Production
 
@@ -65,4 +81,4 @@ npm run start
 
 Set `HOST`, `PORT`, `DB_PATH`, and `BACKUP_DIR` as needed. Serve the app over HTTPS when reachable from other devices. If a trusted HTTPS reverse proxy terminates TLS, set `TRUST_PROXY=true` so Darkroom sets secure session cookies. Keep database and backup directories private and persistent. SQLite is intended for one app server.
 
-Account recovery, email verification, online payments, a full client account portal, and legally reviewed contract templates are not implemented yet.
+Account recovery, email verification, refunds, a full client account portal, and legally reviewed contract templates are not implemented yet. Electronic signature requirements vary by country and use case; confirm that this signing process meets yours.

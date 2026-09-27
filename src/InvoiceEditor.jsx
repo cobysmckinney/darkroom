@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Plus, Trash2, X } from 'lucide-react'
+import { invoiceTotals, money } from './invoice.js'
 
-const money = (amount, currency) => new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(Number(amount) || 0)
 const dateInput = value => { const date = new Date(value); return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10) }
 
 export default function InvoiceEditor({ item, settings, projects, clients, currentProjectId, onSave, onClose }) {
@@ -18,9 +18,7 @@ export default function InvoiceEditor({ item, settings, projects, clients, curre
   const [error, setError] = useState('')
   const currency = item?.currency || settings?.currency || 'USD'
   const invoiceNumber = item?.invoiceNumber || item?.title?.match(/#(.+)$/)?.[1] || String(Date.now()).slice(-6)
-  const subtotal = lines.reduce((sum, line) => sum + (Number(line.quantity) || 0) * (Number(line.unitPrice) || 0), 0)
-  const tax = Math.max(0, subtotal - Number(discount || 0)) * Number(taxRate || 0) / 100
-  const total = Math.max(0, subtotal - Number(discount || 0) + tax)
+  const totals = invoiceTotals({ lineItems: lines, taxRate, discount, amountPaid, onlinePayments: item?.onlinePayments, currency })
   const updateLine = (index, key, value) => setLines(previous => previous.map((line, position) => position === index ? { ...line, [key]: value } : line))
   const chooseProject = value => {
     setProjectId(value)
@@ -38,7 +36,7 @@ export default function InvoiceEditor({ item, settings, projects, clients, curre
     const values = Object.fromEntries(new FormData(event.currentTarget))
     const number = values.invoiceNumber.trim()
     setBusy(true); setError('')
-    try { await onSave({ ...item, id: item?.id || crypto.randomUUID(), projectId: project.id, scope: 'project', title: `Invoice #${number}`, invoiceNumber: number, client: client.trim(), email: email.trim(), clientAddress: values.clientAddress.trim(), issued: values.issued, due: values.due, lineItems: lines.map(line => ({ description: String(line.description).trim(), quantity: Number(line.quantity), unitPrice: Number(line.unitPrice) })), taxRate: Number(taxRate), discount: Number(discount), amountPaid: Number(amountPaid), currency, amount: money(total, currency), balanceDue: money(Math.max(0, total - Number(amountPaid)), currency), paymentTerms: values.paymentTerms.trim(), notes: values.notes.trim(), status: item?.status || 'Draft', service: lines.map(line => line.description).join(', ') }) }
+    try { await onSave({ ...item, id: item?.id || crypto.randomUUID(), projectId: project.id, scope: 'project', title: `Invoice #${number}`, invoiceNumber: number, client: client.trim(), email: email.trim(), clientAddress: values.clientAddress.trim(), issued: values.issued, due: values.due, lineItems: lines.map(line => ({ description: String(line.description).trim(), quantity: Number(line.quantity), unitPrice: Number(line.unitPrice) })), taxRate: Number(taxRate), discount: Number(discount), amountPaid: Number(amountPaid), currency, amount: money(totals.total, currency), balanceDue: money(totals.balance, currency), paymentTerms: values.paymentTerms.trim(), notes: values.notes.trim(), status: item?.status || 'Draft', service: lines.map(line => line.description).join(', ') }) }
     catch (cause) { setError(cause.message) }
     finally { setBusy(false) }
   }
@@ -55,6 +53,6 @@ export default function InvoiceEditor({ item, settings, projects, clients, curre
     </div><div className="invoice-lines"><div className="invoice-lines-head"><h3>Line items</h3><button type="button" className="secondary" onClick={() => setLines([...lines, { description: '', quantity: 1, unitPrice: '' }])}><Plus size={15}/> Add item</button></div>
       {lines.map((line, index) => <div className="invoice-line" key={index}><label>Description<input required value={line.description} onChange={event => updateLine(index, 'description', event.target.value)} placeholder="Photography service"/></label><label>Qty<input type="number" min="0.01" step="0.01" required value={line.quantity} onChange={event => updateLine(index, 'quantity', event.target.value)}/></label><label>Rate<input type="number" min="0" step="0.01" required value={line.unitPrice} onChange={event => updateLine(index, 'unitPrice', event.target.value)}/></label><strong>{money(Number(line.quantity) * Number(line.unitPrice), currency)}</strong><button type="button" aria-label="Remove item" disabled={lines.length === 1} onClick={() => setLines(lines.filter((_, position) => position !== index))}><Trash2 size={16}/></button></div>)}
     </div><div className="invoice-extras"><label>Discount ({currency})<input type="number" min="0" step="0.01" value={discount} onChange={event => setDiscount(event.target.value)}/></label><label>Tax rate (%)<input type="number" min="0" max="100" step="0.01" value={taxRate} onChange={event => setTaxRate(event.target.value)}/></label><label>Amount paid ({currency})<input type="number" min="0" step="0.01" value={amountPaid} onChange={event => setAmountPaid(event.target.value)}/></label></div>
-    <div className="invoice-total"><span>Subtotal {money(subtotal, currency)}</span><span>Tax {money(tax, currency)}</span><strong>Balance due {money(Math.max(0, total - Number(amountPaid)), currency)}</strong></div><label>Payment terms<textarea name="paymentTerms" rows="2" defaultValue={item?.paymentTerms || settings?.paymentTerms || ''} placeholder="Payment due within 14 days"/></label><label>Notes<textarea name="notes" rows="2" defaultValue={item?.notes || settings?.invoiceNotes || ''} placeholder="Thank you for your business"/></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button className="primary" disabled={busy}>{busy ? 'Saving...' : 'Save invoice'}</button></div></form>
+    <div className="invoice-total"><span>Subtotal {money(totals.subtotal, currency)}</span><span>Tax {money(totals.tax, currency)}</span>{totals.onlinePaid > 0 && <span>Paid online {money(totals.onlinePaid, currency)}</span>}<strong>Balance due {money(totals.balance, currency)}</strong></div><label>Payment terms<textarea name="paymentTerms" rows="2" defaultValue={item?.paymentTerms || settings?.paymentTerms || ''} placeholder="Payment due within 14 days"/></label><label>Notes<textarea name="notes" rows="2" defaultValue={item?.notes || settings?.invoiceNotes || ''} placeholder="Thank you for your business"/></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button className="primary" disabled={busy}>{busy ? 'Saving...' : 'Save invoice'}</button></div></form>
   </div></div>
 }

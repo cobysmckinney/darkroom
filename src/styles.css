@@ -71,3 +71,31 @@
 @media(max-width:850px){.gallery-head{display:block}.gallery-head-actions{justify-content:flex-start;margin-top:20px}.gallery-edit-form{grid-template-columns:1fr 1fr}.gallery-edit-form button{align-self:end}.gallery-photo-grid,.shared-gallery-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:620px){.gallery-head h2{font-size:34px}.gallery-head-actions{display:grid;grid-template-columns:1fr 1fr}.gallery-head-actions .primary{grid-column:1/-1}.gallery-edit-form{grid-template-columns:1fr}.gallery-photo-grid,.shared-gallery-grid{gap:8px}.gallery-photo-info{padding:8px}.gallery-photo-info>span{font-size:11px}.gallery-share-panel{display:block}.gallery-share-list{margin:17px 0}.shared-gallery-top small{font-size:8px}.shared-gallery-main{padding-top:27px}.gallery-lightbox-bar>div{gap:6px}.gallery-lightbox-bar a{font-size:0}.gallery-lightbox-bar a svg{width:20px;height:20px}.gallery-link-picker select{font-size:16px}}
 @media(prefers-reduced-motion:reduce){.gallery-photo-open img,.shared-gallery-grid img{transition:none}}
+.client-document{max-width:1120px;margin:auto;padding:38px clamp(20px,4vw,60px) 70px}
+.client-document-body{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:48px;align-items:start}
+.client-document-body section p{font-size:14px;line-height:1.65;color:#51554f}
+.client-label{display:block;font-size:10px;letter-spacing:.14em;color:#7a8178;margin:24px 0 6px}
+.client-panel{position:sticky;top:24px;border:1px solid #e1e3db;background:#fbfaf7;padding:24px;display:grid;gap:16px}
+.client-panel form,.client-panel>div{display:grid;gap:14px}
+.client-panel h2{font:400 26px/1.2 'Playfair Display',serif;margin:0}
+.client-panel label{display:grid;gap:7px;font-size:12px;color:#51554f}
+.client-panel input:not([type=checkbox]){border:1px solid #d7d4cb;background:#fff;padding:11px 12px;font-size:14px}
+.client-panel .client-consent{display:flex;align-items:flex-start;line-height:1.5}
+.client-panel .client-consent input{margin-top:3px}
+.client-panel .primary,.client-panel .secondary{width:100%;justify-content:center}
+.client-fine{font-size:12px;line-height:1.5;color:#6a7468;margin:0}
+.client-signature-preview{font:italic 400 28px 'Playfair Display',serif;border-bottom:1px solid #b9b6aa;padding:4px 2px 8px;color:#2b2d2a;overflow-wrap:anywhere}
+.client-confirmation svg{color:#5f7a55}
+.client-confirmation p{font-size:14px;line-height:1.55;color:#51554f;margin:0}
+.client-lines>div,.client-totals>div{display:flex;justify-content:space-between;gap:20px;border-bottom:1px solid #e4e2dc;padding:13px 0;font-size:14px}
+.client-lines span small{display:block;color:#7d867b;font-size:12px;margin-top:3px}
+.client-totals{margin:12px 0 0 auto;max-width:360px}
+.client-totals span:first-child{color:#6a7468}
+.client-balance{border-bottom:0!important;font-size:17px!important}
+.text-button{border:0;background:none;padding:0;color:#615e46;text-decoration:underline;font-size:inherit}
+.signature-record,.payment-record{border:1px solid #dfe3d6;background:#f6f8f2;padding:16px 18px;margin-top:20px;font-size:13px;line-height:1.55;color:#4d5a48}
+.signature-record strong,.payment-record strong{display:block;color:#2f3a2c;margin-bottom:4px}
+.signature-record code{font-size:11px;overflow-wrap:anywhere}
+@media(max-width:860px){.client-document-body{grid-template-columns:1fr}.client-panel{position:static}}
+.overview-row-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+.overview-row-actions .primary{margin-top:0;font-size:13px;padding:9px 14px}
