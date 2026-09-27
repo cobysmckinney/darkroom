@@ -31,3 +31,9 @@ export const initialEmails = [
   { id: 1, subject: 'Your invoice from Alex Rivera Studio', recipient: 'morgan.lee@example.com', status: 'Draft', date: 'Sep 23, 2026', body: 'Hi Morgan,\n\nPlease find your invoice attached.\n\nBest,\nAlex', attachmentRefs: [{ type: 'Invoices', id: 1040 }] },
   { id: 2, subject: 'Thank you for a wonderful day', recipient: 'sophie.chen@example.com', status: 'Sent', date: 'Jul 12, 2026', body: 'Hi Sophie,\n\nThank you for a wonderful day.\n\nBest,\nAlex', attachmentRefs: [] },
 ]
+export const initialEvents = [
+  { id: 'sample-event-1', projectId: 2, scope: 'project', kind: 'Shoot', title: 'Engagement session — Priya & James', date: '2026-09-30', start: '17:00', end: '19:00', location: 'Golden Gate Park', notes: '' },
+  { id: 'sample-event-2', projectId: 3, scope: 'project', kind: 'Client call', title: 'Client call — Morgan & Taylor', date: '2026-10-02', start: '10:00', end: '10:30', location: 'Zoom', notes: 'Walk through the wedding day timeline.' },
+  { id: 'sample-event-3', projectId: 1, scope: 'project', kind: 'Edit review', title: 'Edit review — Emma & Daniel', date: '2026-10-06', start: '11:00', end: '12:00', location: 'Studio', notes: '' },
+  { id: 'sample-event-4', projectId: 4, scope: 'project', kind: 'Meeting', title: 'Contract meeting — Chris & Pat', date: '2026-10-09', start: '14:00', end: '14:30', location: 'Zoom', notes: '' },
+]

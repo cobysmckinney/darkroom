@@ -14,7 +14,7 @@ import RecordDetail from './RecordDetail.jsx'
 import RecordModal from './RecordModal.jsx'
 import { displayDate, sectionActions } from './format.js'
 import { invoiceTotals, money } from './invoice.js'
-import { initialClients, initialContracts, initialEmails, initialGalleries, initialInvoices, initialProjects } from './sampleData.js'
+import { initialClients, initialContracts, initialEmails, initialEvents, initialGalleries, initialInvoices, initialProjects } from './sampleData.js'
 import { House as HouseIcon } from '@phosphor-icons/react/dist/csr/House'
 import { Folder as FolderIcon } from '@phosphor-icons/react/dist/csr/Folder'
 import { Users as UsersIcon } from '@phosphor-icons/react/dist/csr/Users'
@@ -27,6 +27,11 @@ import { GearSix as GearSixIcon } from '@phosphor-icons/react/dist/csr/GearSix'
 import { Question as QuestionIcon } from '@phosphor-icons/react/dist/csr/Question'
 import { SignOut as SignOutIcon } from '@phosphor-icons/react/dist/csr/SignOut'
 import { List as ListIcon } from '@phosphor-icons/react/dist/csr/List'
+import { CalendarBlank as CalendarIcon } from '@phosphor-icons/react/dist/csr/CalendarBlank'
+import EventEditor from './EventEditor.jsx'
+import ProjectEditor from './ProjectEditor.jsx'
+import SchedulePage from './SchedulePage.jsx'
+import { scheduleItems } from './schedule.js'
 const ContractEditor = React.lazy(() => import('./ContractEditor.jsx'))
 const EmailComposer = React.lazy(() => import('./EmailComposer.jsx'))
 
@@ -35,11 +40,11 @@ function EditorLoading({ label }) {
 }
 
 const nav = [
-  ['Overview', HouseIcon], ['Projects', FolderIcon], ['Clients', UsersIcon], ['Galleries', ImageIcon], ['Invoices', FilePdfIcon], ['Contracts', NotePencilIcon], ['Email', EnvelopeIcon], ['Templates', SquaresFourIcon],
+  ['Overview', HouseIcon], ['Projects', FolderIcon], ['Schedule', CalendarIcon], ['Clients', UsersIcon], ['Galleries', ImageIcon], ['Invoices', FilePdfIcon], ['Contracts', NotePencilIcon], ['Email', EnvelopeIcon], ['Templates', SquaresFourIcon],
 ]
 
-const emptyWorkspace = () => ({ Projects: [], Clients: [], Galleries: [], Invoices: [], Contracts: [], Email: [], Templates: [] })
-const sampleWorkspace = () => ({ Projects: initialProjects, Clients: initialClients, Galleries: initialGalleries, Invoices: initialInvoices, Contracts: initialContracts, Email: initialEmails, Templates: [] })
+const emptyWorkspace = () => ({ Projects: [], Clients: [], Galleries: [], Invoices: [], Contracts: [], Email: [], Templates: [], Events: [] })
+const sampleWorkspace = () => ({ Projects: initialProjects, Clients: initialClients, Galleries: initialGalleries, Invoices: initialInvoices, Contracts: initialContracts, Email: initialEmails, Templates: [], Events: initialEvents })
 const browserWorkspace = () => Object.fromEntries(Object.keys(emptyWorkspace()).map(section => {
   try {
     const rows = JSON.parse(localStorage.getItem(`darkroom-${section.toLowerCase()}`))
@@ -62,6 +67,8 @@ function App() {
   const [galleries, setGalleries] = useState([])
   const [emails, setEmails] = useState([])
   const [templates, setTemplates] = useState([])
+  const [events, setEvents] = useState([])
+  const [editingEvent, setEditingEvent] = useState(null)
   const [scope, setScope] = useState('global')
   const [modal, setModal] = useState(null)
   const [selected, setSelected] = useState(null)
@@ -93,6 +100,7 @@ function App() {
     setContracts(workspace.Contracts || [])
     setEmails(workspace.Email || [])
     setTemplates(workspace.Templates || [])
+    setEvents(workspace.Events || [])
   }
   useEffect(() => {
     let active = true
@@ -161,8 +169,8 @@ function App() {
     applyWorkspace(workspace); setStudioSettings(settings); setAuth(user); setCsrfToken(token); setPage('Overview'); setScope('global'); setSelected(null); setModal(null)
   }
 
-  const collections = { Projects: projects, Clients: clients, Galleries: galleries, Invoices: invoices, Contracts: contracts, Email: emails, Templates: templates }
-  const setters = { Projects: setProjects, Clients: setClients, Galleries: setGalleries, Invoices: setInvoices, Contracts: setContracts, Email: setEmails, Templates: setTemplates }
+  const collections = { Projects: projects, Clients: clients, Galleries: galleries, Invoices: invoices, Contracts: contracts, Email: emails, Templates: templates, Events: events }
+  const setters = { Projects: setProjects, Clients: setClients, Galleries: setGalleries, Invoices: setInvoices, Contracts: setContracts, Email: setEmails, Templates: setTemplates, Events: setEvents }
   const notify = (message) => { setToast(message); window.setTimeout(() => setToast(''), 3500) }
   const saveRecord = async (section, item) => {
     const saved = await apiRequest(`/api/records/${section}`, { method: 'PUT', body: item })
@@ -173,6 +181,28 @@ function App() {
     const saved = await saveRecord(section, item)
     if (selected?.id === saved.id) setSelected(saved)
     setModal(null); setEditingDocument(null); setContractTemplate(null); setScope(String(saved.projectId)); go(section); setSelected(saved); notify(`${section === 'Invoices' ? 'Invoice' : 'Contract'} saved`)
+  }
+  const openNew = section => { setEditingDocument(null); setEditingEvent(null); setModal(section) }
+  const saveProject = async item => {
+    const isNew = !projects.some(project => String(project.id) === String(item.id))
+    await saveRecord('Projects', item)
+    setModal(null); setEditingDocument(null)
+    if (isNew) selectScope(String(item.id))
+    notify(isNew ? 'Project created' : 'Project saved')
+  }
+  const saveEvent = async item => {
+    await saveRecord('Events', item)
+    setModal(null); setEditingEvent(null); notify('Event saved')
+  }
+  const deleteEvent = async item => {
+    await apiRequest(`/api/records/Events/${encodeURIComponent(item.id)}`, { method: 'DELETE' })
+    setEvents(previous => previous.filter(row => String(row.id) !== String(item.id)))
+    setModal(null); setEditingEvent(null); notify('Event deleted')
+  }
+  const openScheduleItem = item => {
+    if (item.source === 'event') { if (auth.role !== 'viewer') { setEditingEvent(item.event); setModal('Schedule') } else if (item.project) openProject(item.project) }
+    else if (item.source === 'invoice') { setScope(String(item.invoice.projectId)); setPage('Invoices'); setSelected(item.invoice) }
+    else openProject(item.project)
   }
   const go = (target) => { if (['Projects', 'Templates'].includes(target)) setScope('global'); setPage(target); setSelected(null); setQuery(''); setStatusFilter('All'); setMobileNav(false) }
   const selectScope = value => { setScope(value); setPage('Overview'); setSelected(null); setQuery(''); setStatusFilter('All'); setMobileNav(false) }
@@ -270,14 +300,13 @@ function App() {
     const values = Object.fromEntries(new FormData(event.currentTarget))
     const id = Date.now()
     let item
-    if (modal === 'Projects') item = { id, name: values.name, client: values.client, clientEmail: values.clientEmail?.trim() || '', type: values.type || 'Portrait', date: values.date || 'To be scheduled', location: values.location || 'Location to be confirmed', status: 'Planning', progress: 0, description: 'New project created.' }
     if (modal === 'Clients') item = { id, name: values.name, email: values.email, phone: values.phone || '—', projects: 0 }
     if (modal === 'Galleries') item = { id, projectId: values.projectId, scope: 'project', title: values.title, client: values.client, email: values.email?.trim().toLowerCase() || '', count: 0, status: 'In progress', updated: 'Just now' }
     try {
       await saveRecord(modal, item)
       setModal(null)
-      if (modal === 'Projects') selectScope(String(id))
-      else { if (modal === 'Galleries') setScope(String(values.projectId)); go(modal) }
+      if (modal === 'Galleries') setScope(String(values.projectId))
+      go(modal)
       notify(`${modal === 'Galleries' ? 'Gallery' : modal.slice(0, -1)} created`)
     } catch (error) { notify(error.message) }
   }
@@ -305,6 +334,8 @@ function App() {
     } catch (error) { notify(error.message) }
   }
   const currentProject = projects.find(project => String(project.id) === scope)
+  const schedule = useMemo(() => scheduleItems({ events, projects, invoices }), [events, projects, invoices])
+  const projectSchedule = schedule.filter(item => String(item.projectId) === scope)
   const unassignedItems = ['Galleries', 'Invoices', 'Contracts', 'Email'].flatMap(section => collections[section].filter(item => item.scope === 'unassigned' || (!item.projectId && item.scope !== 'global')).map(item => ({ section, item })))
   const projectRows = section => collections[section].filter(item => String(item.projectId) === scope)
 
@@ -320,15 +351,17 @@ function App() {
     </aside>
     {mobileNav && <button className="mobile-backdrop" aria-label="Close navigation" onClick={() => setMobileNav(false)}/>}
     <main className="main"><div className="mobile-top"><button onClick={() => setMobileNav(true)} aria-label="Open navigation"><ListIcon size={23} weight="regular"/></button><span>darkroom</span><select aria-label="Mobile workspace" value={scope} onChange={event => selectScope(event.target.value)}><option value="global">General</option><optgroup label="Projects">{projects.map(project => <option key={project.id} value={String(project.id)}>{project.name}</option>)}</optgroup>{unassignedItems.length > 0 && <option value="unassigned">Needs sorting</option>}</select></div>
-      {page === 'Settings' ? <SettingsPage auth={auth} apiRequest={apiRequest} onSession={(user, token) => { if (token) switchSession(user, token).catch(error => notify(error.message)); else setAuth(user) }} onSettings={setStudioSettings} onExport={exportData} notify={notify}/> : page === 'Overview' && currentProject ? <ProjectOverview project={currentProject} galleries={projectRows('Galleries')} invoices={projectRows('Invoices')} contracts={projectRows('Contracts')} emails={projectRows('Email')} canEdit={auth.role !== 'viewer'} onOpen={(section, item) => { setPage(section); setSelected(item) }} onNew={section => section === 'Email' ? composeEmail() : (setEditingDocument(null), setModal(section))} onStatus={() => changeStatus('Projects', currentProject, 'Delivered', `${currentProject.name} marked delivered`)} onNavigate={section => go(section)}/> : page === 'Overview' && scope === 'unassigned' ? <div className="unassigned-overview"><header className="page-head inner-head"><div><h1>Needs sorting</h1><p>Place older documents and emails in the right project before sending them.</p></div></header>{unassignedItems.length ? unassignedItems.map(({ section, item }) => <button key={`${section}-${item.id}`} className="project-record" onClick={() => { setPage(section); setSelected(item) }}><span><strong>{item.title || item.subject}</strong><small>{section} · {item.client || item.recipient || 'No client'}</small></span><ArrowRight size={16}/></button>) : <div className="empty-panel"><h2>Everything has a place.</h2><p>There are no unassigned records.</p></div>}</div> : page === 'Overview' ? <StudioOverview projects={projects} invoices={invoices} contracts={contracts} emails={emails} canEdit={auth.role !== 'viewer'} onProject={openProject} onRecord={(section, item) => { setScope(item.projectId ? String(item.projectId) : section === 'Email' && item.scope === 'global' ? 'global' : 'unassigned'); setPage(section); setSelected(item) }} onNavigate={go} onNew={section => { setEditingDocument(null); setModal(section) }} onCompose={() => composeEmail()} onRemind={sendReminder}/> : <>
+      {page === 'Schedule' ? <SchedulePage items={currentProject ? projectSchedule : schedule} project={currentProject} canEdit={auth.role !== 'viewer'} onAdd={() => openNew('Schedule')} onOpen={openScheduleItem} onCalendarSettings={() => { window.location.hash = 'calendar-feed'; go('Settings') }}/> : page === 'Settings' ? <SettingsPage auth={auth} apiRequest={apiRequest} onSession={(user, token) => { if (token) switchSession(user, token).catch(error => notify(error.message)); else setAuth(user) }} onSettings={setStudioSettings} onExport={exportData} notify={notify}/> : page === 'Overview' && currentProject ? <ProjectOverview project={currentProject} schedule={projectSchedule} onEdit={() => { setEditingDocument(currentProject); setModal('Projects') }} onScheduleItem={openScheduleItem} galleries={projectRows('Galleries')} invoices={projectRows('Invoices')} contracts={projectRows('Contracts')} emails={projectRows('Email')} canEdit={auth.role !== 'viewer'} onOpen={(section, item) => { setPage(section); setSelected(item) }} onNew={section => section === 'Email' ? composeEmail() : openNew(section)} onStatus={() => changeStatus('Projects', currentProject, 'Delivered', `${currentProject.name} marked delivered`)} onNavigate={section => go(section)}/> : page === 'Overview' && scope === 'unassigned' ? <div className="unassigned-overview"><header className="page-head inner-head"><div><h1>Needs sorting</h1><p>Place older documents and emails in the right project before sending them.</p></div></header>{unassignedItems.length ? unassignedItems.map(({ section, item }) => <button key={`${section}-${item.id}`} className="project-record" onClick={() => { setPage(section); setSelected(item) }}><span><strong>{item.title || item.subject}</strong><small>{section} · {item.client || item.recipient || 'No client'}</small></span><ArrowRight size={16}/></button>) : <div className="empty-panel"><h2>Everything has a place.</h2><p>There are no unassigned records.</p></div>}</div> : page === 'Overview' ? <StudioOverview auth={auth} galleries={galleries} schedule={schedule} onScheduleItem={openScheduleItem} projects={projects} invoices={invoices} contracts={contracts} emails={emails} canEdit={auth.role !== 'viewer'} onProject={openProject} onRecord={(section, item) => { setScope(item.projectId ? String(item.projectId) : section === 'Email' && item.scope === 'global' ? 'global' : 'unassigned'); setPage(section); setSelected(item) }} onNavigate={go} onNew={openNew} onCompose={() => composeEmail()} onRemind={sendReminder}/> : <>
         <header className="page-head inner-head"><div><span className="scope-kicker">{scope === 'global' ? 'GENERAL STUDIO' : scope === 'unassigned' ? 'NEEDS SORTING' : currentProject?.name?.toUpperCase()}</span><h1>{page}</h1><p>{subtitles[page]}</p></div>{auth.role !== 'viewer' && page !== 'Templates' && <button className="primary" onClick={() => page === 'Email' ? composeEmail() : (setEditingDocument(null), setModal(page))}>{sectionActions[page]} <Plus size={16}/></button>}</header>
-        {selected && page === 'Email' ? <EmailDetail email={selected} project={projects.find(project => String(project.id) === String(selected.projectId))} projects={projects} canEdit={auth.role !== 'viewer'} onBack={() => setSelected(null)} onAssign={projectId => assignRecord('Email', selected, projectId).catch(error => notify(error.message))} onEditDraft={draft => composeEmail(null, draft)} onReuse={source => composeEmail(null, null, source)} onResend={resendEmail} onSaveTemplate={source => saveTemplate(source, 'Email').catch(error => notify(error.message))} notify={notify}/> : selected && page === 'Galleries' ? <GalleryDetail gallery={selected} project={projects.find(project => String(project.id) === String(selected.projectId))} projects={projects} clients={clients} canEdit={auth.role !== 'viewer'} csrfToken={csrfToken} apiRequest={apiRequest} onBack={() => setSelected(null)} onUpdate={updated => { setGalleries(previous => [updated, ...previous.filter(row => String(row.id) !== String(updated.id))]); setSelected(updated) }} onAssign={projectId => assignRecord('Galleries', selected, projectId).catch(error => notify(error.message))} onShare={gallery => composeEmail(null, null, null, null, gallery)} notify={notify}/> : selected && page === 'Templates' ? <TemplateDetail template={selected} canEdit={auth.role !== 'viewer'} onBack={() => setSelected(null)} onUse={useTemplate} onDelete={template => deleteTemplate(template).catch(error => notify(error.message))}/> : selected ? <RecordDetail item={selected} page={page} canEdit={auth.role !== 'viewer'} projects={projects} onAssign={projectId => assignRecord(page, selected, projectId).catch(error => notify(error.message))} onSaveTemplate={item => saveTemplate(item, 'Contract').catch(error => notify(error.message))} onBack={() => setSelected(null)} onEdit={() => { setEditingDocument(selected); setModal(page) }} onStatus={(status, message) => changeStatus(page, selected, status, message)} onDownload={() => downloadDocument(page, selected, auth.studioName, studioSettings).catch(() => notify('PDF could not be generated'))} onEmail={() => composeEmail({ type: page, id: selected.id })} /> : scope === 'global' && ['Galleries', 'Invoices', 'Contracts'].includes(page) ? <section className="scope-empty"><h2>Choose a project to see its {page.toLowerCase()}.</h2><p>Project documents stay together, so only the right files appear when you write to a client.</p><div className="scope-project-list">{projects.map(project => <button key={project.id} onClick={() => setScope(String(project.id))}>{project.name}<ArrowRight size={16}/></button>)}</div>{!projects.length && auth.role !== 'viewer' && <button className="primary" onClick={() => setModal('Projects')}>Create a project</button>}</section> : <section className="workspace"><div className="workspace-toolbar"><div className="search"><Search size={18}/><input aria-label={`Search ${page.toLowerCase()}`} placeholder={`Search ${page.toLowerCase()}...`} value={query} onChange={e => setQuery(e.target.value)}/></div>{!['Clients', 'Templates'].includes(page) && <div className="filter"><SlidersHorizontal size={17}/><select aria-label="Filter by status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option>All</option>{[...new Set(filtered.map(item => item.status))].map(status => <option key={status}>{status}</option>)}</select><ChevronDown size={15}/></div>}</div><div className="results-count">{filtered.length} {page.toLowerCase()}</div><CollectionTable page={page} items={filtered} onOpen={item => page === 'Projects' ? openProject(item) : setSelected(item)} /><div className="workspace-foot"><span>{page === 'Templates' ? 'Save an email or contract as a template from its detail view.' : 'Keep your studio moving, one detail at a time.'}</span></div></section>}
+        {selected && page === 'Email' ? <EmailDetail email={selected} project={projects.find(project => String(project.id) === String(selected.projectId))} projects={projects} canEdit={auth.role !== 'viewer'} onBack={() => setSelected(null)} onAssign={projectId => assignRecord('Email', selected, projectId).catch(error => notify(error.message))} onEditDraft={draft => composeEmail(null, draft)} onReuse={source => composeEmail(null, null, source)} onResend={resendEmail} onSaveTemplate={source => saveTemplate(source, 'Email').catch(error => notify(error.message))} notify={notify}/> : selected && page === 'Galleries' ? <GalleryDetail gallery={selected} project={projects.find(project => String(project.id) === String(selected.projectId))} projects={projects} clients={clients} canEdit={auth.role !== 'viewer'} csrfToken={csrfToken} apiRequest={apiRequest} onBack={() => setSelected(null)} onUpdate={updated => { setGalleries(previous => [updated, ...previous.filter(row => String(row.id) !== String(updated.id))]); setSelected(updated) }} onAssign={projectId => assignRecord('Galleries', selected, projectId).catch(error => notify(error.message))} onShare={gallery => composeEmail(null, null, null, null, gallery)} notify={notify}/> : selected && page === 'Templates' ? <TemplateDetail template={selected} canEdit={auth.role !== 'viewer'} onBack={() => setSelected(null)} onUse={useTemplate} onDelete={template => deleteTemplate(template).catch(error => notify(error.message))}/> : selected ? <RecordDetail item={selected} page={page} canEdit={auth.role !== 'viewer'} projects={projects} onAssign={projectId => assignRecord(page, selected, projectId).catch(error => notify(error.message))} onSaveTemplate={item => saveTemplate(item, 'Contract').catch(error => notify(error.message))} onBack={() => setSelected(null)} onEdit={() => { setEditingDocument(selected); setModal(page) }} onStatus={(status, message) => changeStatus(page, selected, status, message)} onDownload={() => downloadDocument(page, selected, auth.studioName, studioSettings).catch(() => notify('PDF could not be generated'))} onEmail={() => composeEmail({ type: page, id: selected.id })} /> : scope === 'global' && ['Galleries', 'Invoices', 'Contracts'].includes(page) ? <section className="scope-empty"><h2>Choose a project to see its {page.toLowerCase()}.</h2><p>Project documents stay together, so only the right files appear when you write to a client.</p><div className="scope-project-list">{projects.map(project => <button key={project.id} onClick={() => setScope(String(project.id))}>{project.name}<ArrowRight size={16}/></button>)}</div>{!projects.length && auth.role !== 'viewer' && <button className="primary" onClick={() => openNew('Projects')}>Create a project</button>}</section> : <section className="workspace"><div className="workspace-toolbar"><div className="search"><Search size={18}/><input aria-label={`Search ${page.toLowerCase()}`} placeholder={`Search ${page.toLowerCase()}...`} value={query} onChange={e => setQuery(e.target.value)}/></div>{!['Clients', 'Templates'].includes(page) && <div className="filter"><SlidersHorizontal size={17}/><select aria-label="Filter by status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option>All</option>{[...new Set(filtered.map(item => item.status))].map(status => <option key={status}>{status}</option>)}</select><ChevronDown size={15}/></div>}</div><div className="results-count">{filtered.length} {page.toLowerCase()}</div><CollectionTable page={page} items={filtered} onOpen={item => page === 'Projects' ? openProject(item) : setSelected(item)} /><div className="workspace-foot"><span>{page === 'Templates' ? 'Save an email or contract as a template from its detail view.' : 'Keep your studio moving, one detail at a time.'}</span></div></section>}
       </>}
     </main>
     {modal === 'Email' && <Suspense fallback={<EditorLoading label="email editor"/>}><EmailComposer key={`${emailDocument?.type || 'blank'}-${emailDocument?.id || emailDraft?.id || emailSource?.id || emailTemplate?.id || 'new'}`} documentRef={emailDocument} galleryRef={emailGallery} galleries={galleries} draft={emailDraft} source={emailSource} template={emailTemplate} projects={projects} invoices={invoices} contracts={contracts} clients={clients} scope={scope} studioName={auth.studioName} displayName={auth.displayName} onSave={saveEmail} onSend={sendEmail} onClose={() => setModal(null)} /></Suspense>}
     {modal === 'Contracts' && <Suspense fallback={<EditorLoading label="contract editor"/>}><ContractEditor key={editingDocument?.id || contractTemplate?.id || 'new'} item={editingDocument} template={contractTemplate} projects={projects} clients={clients} currentProjectId={scope} onClose={() => setModal(null)} onSave={item => saveDocument('Contracts', item)}/></Suspense>}
     {modal === 'Invoices' && <InvoiceEditor key={editingDocument?.id || 'new'} item={editingDocument} settings={studioSettings} projects={projects} clients={clients} currentProjectId={scope} onClose={() => setModal(null)} onSave={item => saveDocument('Invoices', item)}/>}
-    {modal && !['Email', 'Contracts', 'Invoices'].includes(modal) && <RecordModal section={modal} projects={projects} scope={scope} onClose={() => setModal(null)} onSubmit={submit} />}
+    {modal === 'Projects' && <ProjectEditor key={editingDocument?.id || 'new'} project={editingDocument} onSave={saveProject} onClose={() => { setModal(null); setEditingDocument(null) }}/>}
+    {modal === 'Schedule' && <EventEditor key={editingEvent?.id || 'new'} event={editingEvent} projects={projects} defaultProjectId={scope} onSave={saveEvent} onDelete={deleteEvent} onClose={() => { setModal(null); setEditingEvent(null) }}/>}
+    {modal && !['Email', 'Contracts', 'Invoices', 'Projects', 'Schedule'].includes(modal) && <RecordModal section={modal} projects={projects} scope={scope} onClose={() => setModal(null)} onSubmit={submit} />}
     {toast && <div className="toast"><Check size={17}/>{toast}</div>}
   </div>
 }

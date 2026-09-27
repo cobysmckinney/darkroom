@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { ArrowRight, Copy, Download, Plus, Trash2 } from 'lucide-react'
+import { ArrowRight, CalendarDays, Copy, Download, Plus, Trash2 } from 'lucide-react'
 
 const emptySettings = { name: '', businessEmail: '', businessAddress: '', phone: '', website: '', taxId: '', currency: 'USD', paymentTerms: '', invoiceNotes: '', smtpHost: '', smtpPort: 587, smtpSecure: false, smtpUser: '', smtpFrom: '' }
 export default function SettingsPage({ auth, apiRequest, onSession, onSettings, onExport, notify }) {
@@ -11,15 +11,30 @@ export default function SettingsPage({ auth, apiRequest, onSession, onSettings, 
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('editor')
   const [inviteUrl, setInviteUrl] = useState('')
+  const [feed, setFeed] = useState({ active: false })
+  const [feedUrl, setFeedUrl] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const canManage = ['owner', 'admin'].includes(auth.role)
   const load = async () => {
-    const [studioRows, studioSettings, people] = await Promise.all([apiRequest('/api/studios'), apiRequest('/api/studios/current/settings'), apiRequest('/api/studios/current/members')])
+    const [studioRows, studioSettings, people, calendarFeed] = await Promise.all([apiRequest('/api/studios'), apiRequest('/api/studios/current/settings'), apiRequest('/api/studios/current/members'), apiRequest('/api/calendar-feed')])
+    setFeed(calendarFeed)
     setStudios(studioRows); setSettings({ ...emptySettings, ...studioSettings }); setMembers(people.members); setInvites(people.invites)
     onSettings(studioSettings)
   }
-  useEffect(() => { load().catch(cause => setError(cause.message)) }, [auth.studioId])
+  useEffect(() => { load().then(() => { if (window.location.hash === '#calendar-feed') { document.getElementById('calendar-feed')?.scrollIntoView(); window.history.replaceState({}, '', window.location.pathname) } }).catch(cause => setError(cause.message)) }, [auth.studioId])
+  const createFeed = async () => {
+    if (feed.active && !window.confirm('Create a new calendar link? The current link will stop working, so update any calendar subscribed to it.')) return
+    setBusy(true); setError('')
+    try { const result = await apiRequest('/api/calendar-feed', { method: 'POST' }); setFeed(result); setFeedUrl(result.url); notify('Calendar link created') }
+    catch (cause) { setError(cause.message) }
+    finally { setBusy(false) }
+  }
+  const removeFeed = async () => {
+    if (!window.confirm('Turn off your calendar link? Subscribed calendars will stop updating.')) return
+    try { setFeed(await apiRequest('/api/calendar-feed', { method: 'DELETE' })); setFeedUrl(''); notify('Calendar link turned off') }
+    catch (cause) { setError(cause.message) }
+  }
   const update = (key, value) => setSettings(previous => ({ ...previous, [key]: value }))
   const save = async event => {
     event.preventDefault(); setBusy(true); setError('')
@@ -74,6 +89,7 @@ export default function SettingsPage({ auth, apiRequest, onSession, onSettings, 
     {canManage && <section className="settings-card"><div className="settings-card-head"><div><h2>Online payments</h2><p>Add your Stripe keys so invoice emails include a secure payment link. Payments go directly to your Stripe account.</p></div>{settings.stripeKeySet && <button type="button" className="secondary" onClick={disconnectStripe} disabled={busy}>Turn off</button>}</div><div className="settings-grid"><label>Stripe secret key<input type="password" value={settings.stripeSecretKey || ''} onChange={event => update('stripeSecretKey', event.target.value)} placeholder={settings.stripeKeySet ? 'Saved — leave blank to keep' : 'sk_live_… or a restricted rk_ key'} autoComplete="off"/></label><label>Webhook signing secret<input type="password" value={settings.stripeWebhookSecret || ''} onChange={event => update('stripeWebhookSecret', event.target.value)} placeholder={settings.stripeWebhookSecretSet ? 'Saved — leave blank to keep' : 'whsec_… (recommended)'} autoComplete="off"/></label><div className="wide"><p className="settings-hint">In Stripe, add a webhook endpoint for <strong>checkout.session.completed</strong> and <strong>checkout.session.async_payment_succeeded</strong> at this URL. It must be your public HTTPS address.</p><div className="invite-link"><input readOnly value={webhookUrl} aria-label="Stripe webhook URL"/><button className="secondary" type="button" onClick={() => navigator.clipboard.writeText(webhookUrl).then(() => notify('Webhook URL copied'))}><Copy size={15}/> Copy</button></div></div></div></section>}
     {canManage && <div className="settings-save"><button className="primary" disabled={busy}>{busy ? 'Saving...' : 'Save settings'}</button></div>}</form>
     <section className="settings-card"><div className="settings-card-head"><div><h2>People & permissions</h2><p>Owners and admins manage settings. Editors change records and send email. Viewers can read.</p></div></div><div className="member-list">{members.map(member => <div className="member-row" key={member.id}><div><strong>{member.displayName}</strong><small>{member.email}</small></div>{canManage && member.role !== 'owner' ? <><select aria-label={`Role for ${member.displayName}`} value={member.role} onChange={event => changeRole(member.id,event.target.value)}>{['admin','editor','viewer'].map(role => <option key={role}>{role}</option>)}</select><button type="button" aria-label={`Remove ${member.displayName}`} onClick={() => remove(member.id)}><Trash2 size={16}/></button></> : <span className="current-badge">{member.role}</span>}</div>)}</div>{canManage && <><form className="settings-inline" onSubmit={invite}><label>Invite by email<input type="email" required value={inviteEmail} onChange={event => setInviteEmail(event.target.value)} placeholder="teammate@example.com"/></label><label>Role<select value={inviteRole} onChange={event => setInviteRole(event.target.value)}>{['admin','editor','viewer'].map(role => <option key={role}>{role}</option>)}</select></label><button className="secondary" disabled={busy}>Create invite link</button></form>{inviteUrl && <div className="invite-link"><input readOnly value={inviteUrl} aria-label="Invitation link"/><button className="secondary" type="button" onClick={() => navigator.clipboard.writeText(inviteUrl).then(() => notify('Link copied'))}><Copy size={15}/> Copy</button></div>}{invites.length > 0 && <div className="pending-invites"><p className="settings-hint">Pending invitations · links expire after 7 days</p>{invites.map(invite => <div className="member-row" key={invite.email}><div><strong>{invite.email}</strong><small>{invite.role}</small></div><button type="button" onClick={() => revoke(invite.email)}>Revoke</button></div>)}</div>}</>}</section>
+    <section className="settings-card" id="calendar-feed"><div className="settings-card-head"><div><h2>Calendar feed</h2><p>Subscribe from Google, Apple, or Outlook Calendar to see this studio’s sessions, shoot dates, and payment due dates. The link is private to you; anyone who has it can read your schedule.</p></div><div className="settings-card-actions">{feed.active && <button type="button" className="secondary" onClick={removeFeed}>Turn off</button>}<button type="button" className="secondary" onClick={createFeed} disabled={busy}><CalendarDays size={16}/> {feed.active ? 'Create new link' : 'Create calendar link'}</button></div></div>{feedUrl ? <><div className="invite-link"><input readOnly value={feedUrl} aria-label="Calendar feed link"/><button className="secondary" type="button" onClick={() => navigator.clipboard.writeText(feedUrl).then(() => notify('Link copied'))}><Copy size={15}/> Copy</button><a className="secondary" href={feedUrl.replace(/^https?:/, 'webcal:')}>Subscribe</a></div><p className="settings-hint">Copy this link now: it is only shown once. Calendar apps refresh it every few hours.</p></> : feed.active && <p className="settings-hint">Your calendar link has been active since {new Date(feed.createdAt).toLocaleDateString()}. Create a new link if you need to see it again.</p>}</section>
     <section className="settings-card"><div className="settings-card-head"><div><h2>Your data</h2><p>Download the records from the current studio.</p></div><button className="secondary" onClick={onExport}><Download size={16}/> Export studio data</button></div></section>
   </div>
 }

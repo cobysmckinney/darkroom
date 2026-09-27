@@ -23,6 +23,14 @@ The general Invoices, Contracts, and Galleries tabs ask you to choose a project 
 
 On startup, older records are linked to a project when the match is clear. Ambiguous records appear in **Needs sorting** so you can place them in the right project before sending.
 
+## Schedule and calendar feed
+
+**Schedule** lists sessions, calls, meetings, review dates, and deadlines. It includes each project's shoot date and the due date of every unpaid invoice. Add an event from the Schedule page or a project's workspace. Leave the times empty for an all-day event. The studio overview shows the next few events under **Upcoming**, beside the project you are currently working on.
+
+Open a project's workspace and choose **Edit project** to change its details, shoot date, or status. Choosing a status moves the progress bar to that stage, and you can adjust it afterwards.
+
+To see the schedule in Google, Apple, or Outlook Calendar, open **Settings → Calendar feed** and create a link. Each member gets their own private link for the current studio. The link is shown only once, and anyone who has it can read the schedule. Creating a new link or choosing **Turn off** stops the old one, and removing a member stops theirs. Event times are shown at the same clock time you entered, whatever the viewer's timezone. Calendar apps usually refresh subscriptions every few hours.
+
 ## Galleries and client sharing
 
 Open a project's **Galleries** tab to create a gallery for its client. Upload JPEG, PNG, or WebP photos (up to 20 MB each and 150 per gallery), preview them, and remove photos. The photo count reflects uploaded images; older sample galleries start empty.

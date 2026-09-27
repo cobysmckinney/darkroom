@@ -4,7 +4,6 @@ import { sectionActions } from './format.js'
 
 export default function RecordModal({ section, projects, scope, onClose, onSubmit }) {
   const fields = {
-    Projects: [['name', 'Project name', 'text', 'e.g. Jamie & Robin', true], ['client', 'Client name', 'text', 'e.g. Jamie Lee', true], ['clientEmail', 'Client email', 'email', 'jamie@example.com', false], ['type', 'Project type', 'select', 'Wedding,Portrait,Engagement,Commercial', false], ['date', 'Shoot date', 'date', '', false], ['location', 'Location', 'text', 'e.g. San Francisco, CA', false]],
     Clients: [['name', 'Full name', 'text', 'e.g. Jamie Lee', true], ['email', 'Email address', 'email', 'jamie@example.com', true], ['phone', 'Phone number', 'tel', '(415) 555-0123', false]],
     Galleries: [['title', 'Gallery name', 'text', 'e.g. Jamie & Robin', true], ['client', 'Client name', 'text', 'e.g. Jamie Lee', true], ['email', 'Client email', 'email', 'jamie@example.com', true]],
   }
