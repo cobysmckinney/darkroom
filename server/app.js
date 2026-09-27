@@ -6,15 +6,26 @@ import { getEmailAttachment, importWorkspace, listEmailAttachments, recordFor, r
 import { smtpForStudio, studioRoutes } from './studios.js'
 import { emailHtml, plainText, textDocument } from '../src/richText.js'
 import { createGalleryShare, galleryForEmail, galleryHtml, galleryMessage, galleryRoutes, revokeGalleryShare } from './galleries.js'
+import { linkErrors, linksHtml, linksMessage, revokeClientLinks } from './clientLinks.js'
+import { signingLinkFor, signingRoutes } from './signing.js'
+import { paymentLinkFor, paymentRoutes, stripeFor, stripeWebhookRoute } from './payments.js'
 
 export const smtpTransport = smtp => nodemailer.createTransport({ host: smtp.host, port: smtp.port, secure: smtp.secure || smtp.port === 465, auth: smtp.user ? { user: smtp.user, pass: smtp.pass } : undefined, requireTLS: !(smtp.secure || smtp.port === 465) })
 
-export function createApp({ host = '127.0.0.1', isProduction = false, mailTransport = smtpTransport } = {}) {
+// Signing and payment links for the invoices and contracts attached to an email.
+const documentLinks = (studioId, refs, recipient, request) => refs.map(ref => {
+  const item = recordFor(studioId, ref.type, ref.id)
+  if (!item) return null
+  return ref.type === 'Contracts' ? signingLinkFor(studioId, item, recipient, request) : paymentLinkFor(studioId, item, recipient, request)
+}).filter(Boolean)
+
+export function createApp({ host = '127.0.0.1', isProduction = false, mailTransport = smtpTransport, stripeFetch = fetch } = {}) {
   const app = express()
   const localOnly = ['127.0.0.1', 'localhost', '::1'].includes(host)
-  app.use('/share', (_request, response, next) => { response.setHeader('Referrer-Policy', 'no-referrer'); response.setHeader('X-Robots-Tag', 'noindex, nofollow'); next() })
+  app.use(['/share', '/sign', '/pay'], (_request, response, next) => { response.setHeader('Referrer-Policy', 'no-referrer'); response.setHeader('X-Robots-Tag', 'noindex, nofollow'); next() })
   app.set('trust proxy', process.env.TRUST_PROXY === 'true')
 
+  stripeWebhookRoute(app)
   app.use('/api', express.json({ limit: '18mb' }))
   app.use('/api', (request, response, next) => {
     response.setHeader('Cache-Control', 'no-store')
@@ -24,6 +35,8 @@ export function createApp({ host = '127.0.0.1', isProduction = false, mailTransp
   authRoutes(app)
   studioRoutes(app)
   galleryRoutes(app)
+  signingRoutes(app)
+  paymentRoutes(app, { stripeFetch })
 
   app.get('/api/workspace', requireSession, (request, response) => response.json(workspaceFor(request.session.studio_id)))
   app.get('/api/workspace/export', requireSession, (request, response) => {
@@ -43,7 +56,7 @@ export function createApp({ host = '127.0.0.1', isProduction = false, mailTransp
   })
   app.delete('/api/records/Templates/:id', requireEditor, requireCsrf, (request, response) => response.json({ removed: removeRecord(request.session.studio_id, 'Templates', request.params.id) }))
 
-  app.get('/api/email/status', requireSession, (request, response) => response.json({ configured: Boolean(smtpForStudio(request.session.studio_id)) }))
+  app.get('/api/email/status', requireSession, (request, response) => response.json({ configured: Boolean(smtpForStudio(request.session.studio_id)), paymentsConfigured: Boolean(stripeFor(request.session.studio_id)) }))
   app.get('/api/email/:id/attachments/:position', requireSession, (request, response) => {
     const email = recordFor(request.session.studio_id, 'Email', request.params.id)
     const attachment = email?.status === 'Sent' ? getEmailAttachment.get(request.session.studio_id, request.params.id, Number(request.params.position)) : null
@@ -75,16 +88,18 @@ export function createApp({ host = '127.0.0.1', isProduction = false, mailTransp
 
     const transport = mailTransport(smtp)
     let share
+    let links = []
     let delivered = false
     try {
       if (gallery) share = createGalleryShare(request.session.studio_id, gallery, to, request)
-      const sentBody = galleryMessage(message, share)
+      links = documentLinks(request.session.studio_id, attachmentRefs, to, request)
+      const sentBody = linksMessage(galleryMessage(message, share), links)
       const result = await transport.sendMail({
         from: smtp.from,
         to,
         subject: subject.trim().slice(0, 200),
         text: sentBody,
-        html: bodyDocument || share ? emailHtml(bodyDocument || textDocument(message)) + galleryHtml(share) : undefined,
+        html: bodyDocument || share || links.length ? emailHtml(bodyDocument || textDocument(message)) + galleryHtml(share) + linksHtml(links) : undefined,
         attachments: attachments.map(file => ({ filename: file.filename, content: Buffer.from(file.content, 'base64'), contentType: 'application/pdf' })),
         disableFileAccess: true,
         disableUrlAccess: true,
@@ -95,16 +110,16 @@ export function createApp({ host = '127.0.0.1', isProduction = false, mailTransp
       saveEmailAttachments(request.session.studio_id, email.id, attachments)
       const updatedDocuments = attachmentRefs.map(ref => {
         const item = recordFor(request.session.studio_id, ref.type, ref.id)
-        if (!item || item.status !== 'Draft') return null
-        const updated = { ...item, status: ref.type === 'Invoices' ? 'Open' : 'Awaiting signature', ...(ref.type === 'Contracts' ? { sent: sentDate } : {}) }
+        if (!item) return null
+        const updated = { ...item, lastSentAt: email.sentAt, ...(item.status === 'Draft' ? { status: ref.type === 'Invoices' ? 'Open' : 'Awaiting signature', ...(ref.type === 'Contracts' ? { sent: sentDate } : {}) } : {}) }
         return { type: ref.type, item: saveRecord(request.session.studio_id, ref.type, updated) }
       }).filter(Boolean)
       const updatedGallery = gallery ? saveRecord(request.session.studio_id, 'Galleries', { ...gallery, status: 'Shared', updated: sentDate }) : null
       response.json({ sent: true, messageId: result.messageId, email, updatedDocuments, updatedGallery })
     } catch (error) {
       console.error('Email delivery failed:', error)
-      if (!delivered) revokeGalleryShare(share?.token)
-      response.status(delivered ? 500 : 502).json({ error: delivered ? 'Email was sent, but its history could not be saved. Check the server before trying again.' : error.message === 'A public app URL is required to share galleries.' || error.message === 'Gallery links require HTTPS.' ? error.message : 'Email delivery failed. Check the SMTP settings and try again.' })
+      if (!delivered) { revokeGalleryShare(share?.token); revokeClientLinks(links) }
+      response.status(delivered ? 500 : 502).json({ error: delivered ? 'Email was sent, but its history could not be saved. Check the server before trying again.' : error.message === 'A public app URL is required to share galleries.' || error.message === 'Gallery links require HTTPS.' || linkErrors.has(error.message) ? error.message : 'Email delivery failed. Check the SMTP settings and try again.' })
     }
   })
 
@@ -119,18 +134,20 @@ export function createApp({ host = '127.0.0.1', isProduction = false, mailTransp
     try { gallery = galleryForEmail(request.session.studio_id, original.galleryId, original.projectId, original.recipient) }
     catch (error) { return response.status(409).json({ error: error.message }) }
     let share
+    let links = []
     let delivered = false
     try {
       if (gallery) share = createGalleryShare(request.session.studio_id, gallery, original.recipient, request)
+      links = documentLinks(request.session.studio_id, (original.attachmentRefs || []).filter(ref => String(recordFor(request.session.studio_id, ref.type, ref.id)?.projectId) === String(original.projectId)), original.recipient, request)
       const messageBody = original.messageBody || (gallery ? original.body.split('\n\nView your gallery:')[0] : original.body)
-      const sentBody = galleryMessage(messageBody, share)
-      const result = await mailTransport(smtp).sendMail({ from: smtp.from, to: original.recipient, subject: original.subject, text: sentBody, html: original.bodyDocument || share ? emailHtml(original.bodyDocument || textDocument(messageBody)) + galleryHtml(share) : undefined, attachments: snapshots.map(file => ({ filename: file.filename, content: file.content, contentType: 'application/pdf' })), disableFileAccess: true, disableUrlAccess: true })
+      const sentBody = linksMessage(galleryMessage(messageBody, share), links)
+      const result = await mailTransport(smtp).sendMail({ from: smtp.from, to: original.recipient, subject: original.subject, text: sentBody, html: original.bodyDocument || share || links.length ? emailHtml(original.bodyDocument || textDocument(messageBody)) + galleryHtml(share) + linksHtml(links) : undefined, attachments: snapshots.map(file => ({ filename: file.filename, content: file.content, contentType: 'application/pdf' })), disableFileAccess: true, disableUrlAccess: true })
       delivered = true
       const sentAt = new Date().toISOString()
       const email = saveRecord(request.session.studio_id, 'Email', { ...original, id: randomUUID(), from: smtp.from, body: sentBody, messageBody, galleryShare: share ? { galleryId: gallery.id, title: share.title, url: share.url, expiresAt: share.expiresAt } : undefined, date: new Date(sentAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), sentAt, messageId: result.messageId, resendOf: original.id, attachmentRefs: (original.attachmentRefs || []).filter(ref => String(recordFor(request.session.studio_id, ref.type, ref.id)?.projectId) === String(original.projectId)) })
       saveEmailAttachments(request.session.studio_id, email.id, snapshots.map(file => ({ filename: file.filename, content: file.content.toString('base64') })))
       response.json({ sent: true, email })
-    } catch (error) { console.error('Email resend failed:', error); if (!delivered) revokeGalleryShare(share?.token); response.status(delivered ? 500 : 502).json({ error: delivered ? 'Email was resent, but its history could not be saved.' : 'Email could not be resent. Check the SMTP settings.' }) }
+    } catch (error) { console.error('Email resend failed:', error); if (!delivered) { revokeGalleryShare(share?.token); revokeClientLinks(links) } response.status(delivered ? 500 : 502).json({ error: delivered ? 'Email was resent, but its history could not be saved.' : linkErrors.has(error.message) ? error.message : 'Email could not be resent. Check the SMTP settings.' }) }
   })
   return app
 }

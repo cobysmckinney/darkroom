@@ -78,7 +78,7 @@ export function checkOrigin(request, response, next) {
   next()
 }
 
-function rateLimited(key) {
+export function rateLimited(key) {
   const now = Date.now()
   const entry = loginAttempts.get(key)
   if (!entry || entry.resetAt < now) { loginAttempts.set(key, { count: 1, resetAt: now + 15 * 60 * 1000 }); return false }

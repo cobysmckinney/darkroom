@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, chmodSync, copyFileSync, existsSync, readdirSync, unlinkSync } from 'node:fs'
 import path from 'node:path'
 import { backup, DatabaseSync } from 'node:sqlite'
@@ -103,9 +103,47 @@ db.exec(`
     revoked_at INTEGER
   );
   CREATE INDEX IF NOT EXISTS gallery_shares_gallery_idx ON gallery_shares(studio_id, gallery_id, created_at DESC);
+  CREATE TABLE IF NOT EXISTS client_links (
+    token_hash TEXT PRIMARY KEY,
+    studio_id TEXT NOT NULL REFERENCES studios(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK(kind IN ('sign', 'pay')),
+    record_id TEXT NOT NULL,
+    recipient TEXT NOT NULL,
+    document_hash TEXT,
+    snapshot TEXT,
+    expires_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    revoked_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS client_links_record_idx ON client_links(studio_id, kind, record_id);
+  CREATE TABLE IF NOT EXISTS contract_signatures (
+    id INTEGER PRIMARY KEY,
+    studio_id TEXT NOT NULL REFERENCES studios(id) ON DELETE CASCADE,
+    contract_id TEXT NOT NULL,
+    link_hash TEXT NOT NULL,
+    document_hash TEXT NOT NULL,
+    snapshot TEXT NOT NULL,
+    signer_name TEXT NOT NULL,
+    signer_email TEXT NOT NULL,
+    signer_ip TEXT NOT NULL,
+    signer_agent TEXT NOT NULL,
+    signed_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS contract_signatures_contract_idx ON contract_signatures(studio_id, contract_id, signed_at DESC);
+  CREATE TABLE IF NOT EXISTS invoice_payments (
+    provider_id TEXT PRIMARY KEY,
+    studio_id TEXT NOT NULL REFERENCES studios(id) ON DELETE CASCADE,
+    invoice_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    amount_cents INTEGER NOT NULL,
+    currency TEXT NOT NULL,
+    paid_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS invoice_payments_invoice_idx ON invoice_payments(studio_id, invoice_id, paid_at);
 `)
 if (!db.prepare('PRAGMA table_info(sessions)').all().some(column => column.name === 'studio_id')) db.exec('ALTER TABLE sessions ADD COLUMN studio_id TEXT')
 if (!db.prepare('PRAGMA table_info(users)').all().some(column => column.name === 'active_studio_id')) db.exec('ALTER TABLE users ADD COLUMN active_studio_id TEXT')
+for (const column of ['stripe_secret_key', 'stripe_webhook_secret']) if (!db.prepare('PRAGMA table_info(studio_settings)').all().some(row => row.name === column)) db.exec(`ALTER TABLE studio_settings ADD COLUMN ${column} TEXT NOT NULL DEFAULT ''`)
 db.exec(`
   UPDATE sessions SET studio_id = (SELECT studio_id FROM users WHERE users.id = sessions.user_id) WHERE studio_id IS NULL;
   UPDATE users SET active_studio_id = studio_id WHERE active_studio_id IS NULL;
@@ -134,6 +172,28 @@ const putRecordStatement = db.prepare(`
 `)
 const deleteRecordStatement = db.prepare('DELETE FROM records WHERE studio_id = ? AND section = ? AND id = ?')
 const countRecords = db.prepare('SELECT COUNT(*) AS count FROM records WHERE studio_id = ?')
+const latestSignature = db.prepare('SELECT document_hash, signer_name, signer_email, signer_ip, signer_agent, signed_at FROM contract_signatures WHERE studio_id = ? AND contract_id = ? ORDER BY signed_at DESC, id DESC LIMIT 1')
+const paymentsForInvoice = db.prepare('SELECT provider, provider_id, amount_cents, currency, paid_at FROM invoice_payments WHERE studio_id = ? AND invoice_id = ? ORDER BY paid_at')
+
+// The terms a client agrees to. Editing any of these after signing detaches the signature.
+export function contractFingerprint(contract) {
+  const terms = { title: contract.title, client: contract.client, email: contract.email, service: contract.service, eventDate: contract.eventDate, fee: contract.fee, document: contract.document ?? null, terms: contract.terms ?? null }
+  return createHash('sha256').update(JSON.stringify(terms)).digest('hex')
+}
+
+// Signatures and online payments live in their own tables; records only carry a read-only copy for display.
+function withServerFields(studioId, section, item) {
+  if (section === 'Contracts') {
+    const row = latestSignature.get(studioId, String(item.id))
+    const signature = row && row.document_hash === contractFingerprint(item) ? { name: row.signer_name, email: row.signer_email, ip: row.signer_ip, userAgent: row.signer_agent, signedAt: new Date(row.signed_at).toISOString(), documentHash: row.document_hash } : undefined
+    return { ...item, signature }
+  }
+  if (section === 'Invoices') {
+    const onlinePayments = paymentsForInvoice.all(studioId, String(item.id)).map(row => ({ provider: row.provider, reference: row.provider_id, amount: row.amount_cents / 100, currency: row.currency.toUpperCase(), paidAt: new Date(row.paid_at).toISOString() }))
+    return { ...item, onlinePayments: onlinePayments.length ? onlinePayments : undefined }
+  }
+  return item
+}
 
 export function createStudioAndUser({ studioName, displayName, email, passwordHash }) {
   const studioId = randomUUID()
@@ -173,7 +233,7 @@ export function createStudioForUser(userId, name) {
 }
 
 export function updateStudioSettings(studioId, values) {
-  const fields = ['smtp_host', 'smtp_port', 'smtp_secure', 'smtp_user', 'smtp_password', 'smtp_from', 'business_email', 'business_address', 'phone', 'website', 'tax_id', 'currency', 'payment_terms', 'invoice_notes']
+  const fields = ['smtp_host', 'smtp_port', 'smtp_secure', 'smtp_user', 'smtp_password', 'smtp_from', 'business_email', 'business_address', 'phone', 'website', 'tax_id', 'currency', 'payment_terms', 'invoice_notes', 'stripe_secret_key', 'stripe_webhook_secret']
   db.exec('BEGIN IMMEDIATE')
   try {
     db.prepare('UPDATE studios SET name = ? WHERE id = ?').run(values.name, studioId)
@@ -233,7 +293,7 @@ export const listEmailAttachments = db.prepare('SELECT position, filename, conte
 
 export function saveRecord(studioId, section, item, { allowLegacy = false } = {}) {
   if (!sections.includes(section) || !item || typeof item !== 'object' || Array.isArray(item) || !['string', 'number'].includes(typeof item.id) || String(item.id).length > 80) throw new Error('Invalid record')
-  const record = section === 'Galleries' ? { ...item, count: db.prepare('SELECT COUNT(*) AS count FROM gallery_photos WHERE studio_id = ? AND gallery_id = ?').get(studioId, String(item.id)).count } : item
+  const record = section === 'Galleries' ? { ...item, count: db.prepare('SELECT COUNT(*) AS count FROM gallery_photos WHERE studio_id = ? AND gallery_id = ?').get(studioId, String(item.id)).count } : withServerFields(studioId, section, item)
   const encoded = JSON.stringify(record)
   if (encoded.length > 64_000) throw new Error('Invalid record')
   if (!allowLegacy && projectSections.has(section)) {

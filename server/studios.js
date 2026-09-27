@@ -9,7 +9,7 @@ const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const allowedRoles = ['admin', 'editor', 'viewer']
 const viewSettings = (row, role) => ({
   name: row.name, businessEmail: row.business_email || '', businessAddress: row.business_address || '', phone: row.phone || '', website: row.website || '', taxId: row.tax_id || '', currency: row.currency || 'USD', paymentTerms: row.payment_terms || '', invoiceNotes: row.invoice_notes || '',
-  ...(role === 'owner' || role === 'admin' ? { smtpHost: row.smtp_host || '', smtpPort: row.smtp_port || 587, smtpSecure: Boolean(row.smtp_secure), smtpUser: row.smtp_user || '', smtpFrom: row.smtp_from || '', smtpPasswordSet: Boolean(row.smtp_password) } : {}),
+  ...(role === 'owner' || role === 'admin' ? { smtpHost: row.smtp_host || '', smtpPort: row.smtp_port || 587, smtpSecure: Boolean(row.smtp_secure), smtpUser: row.smtp_user || '', smtpFrom: row.smtp_from || '', smtpPasswordSet: Boolean(row.smtp_password), stripeKeySet: Boolean(row.stripe_secret_key), stripeWebhookSecretSet: Boolean(row.stripe_webhook_secret) } : {}),
 })
 
 export function smtpForStudio(studioId) {
@@ -42,13 +42,18 @@ export function studioRoutes(app) {
     const smtpFrom = clean(input.smtpFrom, 255)
     const smtpPort = Number(input.smtpPort || 587)
     if (!name || !Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535 || (smtpHost && !smtpFrom)) return response.status(400).json({ error: 'Add a studio name and valid SMTP settings.' })
+    const stripeKey = clean(input.stripeSecretKey, 255)
+    const webhookSecret = clean(input.stripeWebhookSecret, 255)
+    if ((stripeKey && !/^(sk|rk)_(test|live)_[A-Za-z0-9]+$/.test(stripeKey)) || (webhookSecret && !/^whsec_[A-Za-z0-9]+$/.test(webhookSecret))) return response.status(400).json({ error: 'Enter a Stripe secret key (sk_…) and webhook signing secret (whsec_…).' })
     const values = {
       name, smtp_host: smtpHost, smtp_port: smtpPort, smtp_secure: input.smtpSecure ? 1 : 0,
       smtp_user: clean(input.smtpUser, 255), smtp_password: input.smtpPassword ? encrypt(String(input.smtpPassword).slice(0, 1000)) : current.smtp_password || '', smtp_from: smtpFrom,
       business_email: clean(input.businessEmail, 255), business_address: clean(input.businessAddress, 500), phone: clean(input.phone, 80), website: clean(input.website, 255), tax_id: clean(input.taxId, 100),
       currency: ['USD', 'EUR', 'GBP', 'CAD', 'AUD'].includes(input.currency) ? input.currency : 'USD', payment_terms: clean(input.paymentTerms, 500), invoice_notes: clean(input.invoiceNotes, 1000),
+      stripe_secret_key: stripeKey ? encrypt(stripeKey) : current.stripe_secret_key || '', stripe_webhook_secret: webhookSecret ? encrypt(webhookSecret) : current.stripe_webhook_secret || '',
     }
     if (input.clearSmtpPassword) values.smtp_password = ''
+    if (input.clearStripe) { values.stripe_secret_key = ''; values.stripe_webhook_secret = '' }
     updateStudioSettings(request.session.studio_id, values)
     response.json(viewSettings(getStudioSettings.get(request.session.studio_id), request.session.role))
   })
