@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "start": "NODE_ENV=production node server/index.js",
-    "backup": "node server/backup.js"
+    "backup": "node server/backup.js",
+    "test": "vitest run"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",
@@ -26,7 +27,8 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.7.0",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "vitest": "^3.2.7"
   },
   "engines": {
     "node": ">=22.16.0"
